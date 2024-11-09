@@ -1,0 +1,303 @@
+import pygame
+import moviepy.editor as mp
+import time
+import os
+import tempfile
+import ctypes
+import subprocess
+
+# Initialize pygame and mixer
+pygame.init()
+pygame.joystick.init()
+pygame.mixer.init()  # Initialize pygame mixer for audio
+
+# Constants
+SCREEN_WIDTH, SCREEN_HEIGHT = 1920, 1080
+MINIMIZED_WIDTH, MINIMIZED_HEIGHT = 600, 50  # Dimensions of the minimized window
+FPS = 30
+INACTIVITY_TIMEOUT = 5  # 5 seconds for inactivity
+BGM_PATH = "bgm.mp3"
+
+# Screen setup
+screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.FULLSCREEN)
+pygame.display.set_caption("Pygame Controller UI")
+clock = pygame.time.Clock()
+
+# Load images
+bg_image = pygame.image.load("bg.jpg").convert()
+bg2_image = pygame.image.load("bg2.jpg").convert()
+btn1_image = pygame.image.load("btn1.jpg").convert_alpha()
+btn2_image = pygame.image.load("btn2.jpg").convert_alpha()
+btn3_image = pygame.image.load("btn3.jpg").convert_alpha()
+
+# Button positioning and size
+button_y = SCREEN_HEIGHT - int(SCREEN_HEIGHT / 5)  # Position buttons at 1/5 of the screen height from the bottom
+btn1_rect = btn1_image.get_rect(center=(SCREEN_WIDTH // 4, button_y))
+btn2_rect = btn2_image.get_rect(center=(SCREEN_WIDTH // 2, button_y))
+btn3_rect = btn3_image.get_rect(center=(3 * SCREEN_WIDTH // 4, button_y))
+
+# Video files
+vid1_path = "vid1.mp4"
+vid2_path = "vid2.mp4"
+
+# Cached audio file paths
+audio_cache = {}
+
+# Controller setup
+controller = None
+if pygame.joystick.get_count() > 0:
+    controller = pygame.joystick.Joystick(0)
+    controller.init()
+    print("Controller detected:", controller.get_name())
+
+# Variables
+selected_button = 1  # 1 for btn1, 2 for btn2, 3 for btn3
+window_minimized = False
+showing_bg2 = False
+last_activity_time = time.time()
+bgm_playing = False
+
+# Helper Functions
+def reset_inactivity_timer():
+    global last_activity_time
+    last_activity_time = time.time()
+
+def set_fullscreen_mode():
+    global screen, window_minimized
+    screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.FULLSCREEN)
+    window_minimized = False
+
+def set_minimized_mode():
+    global screen, window_minimized
+    screen = pygame.display.set_mode((MINIMIZED_WIDTH, MINIMIZED_HEIGHT), pygame.NOFRAME)
+    window_minimized = True
+    
+    # Calculate x-coordinate to center the window horizontally at the top
+    x_position = (SCREEN_WIDTH - MINIMIZED_WIDTH) // 2
+    y_position = 0  # Top of the screen
+
+    # Move the window to the calculated position
+    hwnd = pygame.display.get_wm_info()['window']
+    ctypes.windll.user32.SetWindowPos(hwnd, None, x_position, y_position, 0, 0, 0x0001)
+
+
+def open_explorer_folder():
+    """Opens the folder where this program is located."""
+    folder_path = os.path.dirname(os.path.abspath(__file__))
+    subprocess.Popen(f'explorer "{folder_path}"')
+
+def play_bgm():
+    """Plays background music if it exists."""
+    global bgm_playing
+    if os.path.exists(BGM_PATH) and not bgm_playing:
+        pygame.mixer.music.load(BGM_PATH)
+        pygame.mixer.music.play(-1)  # Loop indefinitely
+        bgm_playing = True
+
+def stop_bgm():
+    """Stops background music if playing."""
+    global bgm_playing
+    if bgm_playing:
+        pygame.mixer.music.stop()
+        bgm_playing = False
+
+def get_audio_path_for_video(video_path):
+    """Generate and cache audio for the given video, if not already cached."""
+    if video_path not in audio_cache:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as tmp_audio_file:
+            audio_cache[video_path] = tmp_audio_file.name
+        clip = mp.VideoFileClip(video_path)
+        clip.audio.write_audiofile(audio_cache[video_path])  # Write audio once
+    return audio_cache[video_path]
+
+def play_video_with_audio(video_path, return_message=None):
+    """Play video with audio using pygame mixer for audio, and show a return message if specified."""
+    clip = mp.VideoFileClip(video_path).resize((SCREEN_WIDTH, SCREEN_HEIGHT))
+    
+    # Load and play audio from the cached file path
+    audio_path = get_audio_path_for_video(video_path)
+    pygame.mixer.music.load(audio_path)
+    pygame.mixer.music.play()
+
+    for frame in clip.iter_frames(fps=FPS, dtype="uint8"):
+        frame_surface = pygame.surfarray.make_surface(frame.swapaxes(0, 1))
+        screen.blit(pygame.transform.scale(frame_surface, (SCREEN_WIDTH, SCREEN_HEIGHT)), (0, 0))
+
+        # Show return message if specified
+        if return_message:
+            font = pygame.font.SysFont(None, 60)
+            text_surface = font.render(return_message, True, (255, 255, 255))  # White color
+            text_rect = text_surface.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT - 100))
+            screen.blit(text_surface, text_rect)
+
+        pygame.display.flip()
+        clock.tick(FPS)
+
+        # Check for return to main screen
+        for event in pygame.event.get():
+            if (event.type == pygame.JOYBUTTONDOWN and event.button == 0) or \
+               event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE or \
+               event.type == pygame.MOUSEBUTTONDOWN:  # A button, Escape, or mouse click
+                pygame.mixer.music.stop()  # Stop audio playback
+                clip.close()  # Close the video clip
+                return
+
+    pygame.mixer.music.stop()
+    clip.close()
+
+def play_vid1_with_message():
+    """Play vid1 with 'Press anything on the joystick to continue' message and hide buttons."""
+    clip = mp.VideoFileClip(vid1_path).resize((SCREEN_WIDTH, SCREEN_HEIGHT))
+    
+    # Load and play audio from the cached file path
+    audio_path = get_audio_path_for_video(vid1_path)
+    pygame.mixer.music.load(audio_path)
+    pygame.mixer.music.play()
+
+    for frame in clip.iter_frames(fps=FPS, dtype="uint8"):
+        frame_surface = pygame.surfarray.make_surface(frame.swapaxes(0, 1))
+        screen.blit(pygame.transform.scale(frame_surface, (SCREEN_WIDTH, SCREEN_HEIGHT)), (0, 0))
+
+        # Show "Press anything on the joystick to continue" message
+        font = pygame.font.SysFont(None, 60)
+        text_surface = font.render("Press anything on the joystick to continue", True, (255, 255, 255))
+        text_rect = text_surface.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT - 100))
+        screen.blit(text_surface, text_rect)
+
+        pygame.display.flip()
+        clock.tick(FPS)
+
+        # Check for interruption to exit video
+        for event in pygame.event.get():
+            if event.type in (pygame.JOYBUTTONDOWN, pygame.JOYHATMOTION, pygame.JOYAXISMOTION, pygame.KEYDOWN, pygame.MOUSEBUTTONDOWN):
+                pygame.mixer.music.stop()  # Stop audio playback
+                clip.close()
+                return
+
+    pygame.mixer.music.stop()
+    clip.close()
+
+
+def show_bg2_screen():
+    """Displays bg2.jpg and waits for the A button to return to the main screen."""
+    global showing_bg2
+    showing_bg2 = True
+    screen.blit(bg2_image, (0, 0))
+
+    # Render "Press A button to return to home" text in white
+    font = pygame.font.SysFont(None, 60)
+    text_surface = font.render("Press A button to return to home", True, (255, 255, 255))
+    text_rect = text_surface.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT - 100))
+    screen.blit(text_surface, text_rect)
+    pygame.display.flip()
+
+    # Wait for the A button to return to the main screen
+    while showing_bg2:
+        for event in pygame.event.get():
+            if (event.type == pygame.JOYBUTTONDOWN and event.button == 0) or \
+               event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE or \
+               event.type == pygame.MOUSEBUTTONDOWN:  # A button, Escape, or mouse click
+                showing_bg2 = False
+                reset_inactivity_timer()
+
+# Main loop
+running = True
+while running:
+    # Set screen background if fullscreen and draw buttons
+    if not window_minimized and not showing_bg2:
+        screen.blit(bg_image, (0, 0))
+        
+    # Check inactivity (no inactivity while showing bg2)
+    if time.time() - last_activity_time > INACTIVITY_TIMEOUT and not showing_bg2:
+        if not window_minimized:
+            play_vid1_with_message()
+            reset_inactivity_timer()
+        elif window_minimized:
+            set_fullscreen_mode()
+
+    # Event handling
+    for event in pygame.event.get():
+        if event.type == pygame.QUIT:
+            running = False
+        elif event.type == pygame.KEYDOWN:
+            if event.key == pygame.K_ESCAPE:
+                running = False
+            elif event.key == pygame.K_f:  # Open Explorer on 'F' key press
+                open_explorer_folder()
+        elif event.type in (pygame.JOYBUTTONDOWN, pygame.KEYDOWN, pygame.MOUSEBUTTONDOWN) and not showing_bg2:
+            reset_inactivity_timer()
+
+        # Handle mouse clicks for button interaction
+        if event.type == pygame.MOUSEBUTTONDOWN:
+            if window_minimized:  # If minimized, go back to fullscreen on click
+                set_fullscreen_mode()
+                stop_bgm()  # Stop BGM when returning to fullscreen
+                reset_inactivity_timer()
+            elif btn1_rect.collidepoint(event.pos) and not window_minimized and not showing_bg2:
+                set_minimized_mode()
+                play_bgm()  # Play BGM when btn1 is active (minimized mode)
+                reset_inactivity_timer()
+            elif btn2_rect.collidepoint(event.pos) and not window_minimized and not showing_bg2:
+                play_video_with_audio(vid2_path, "Press A button to return to home")
+                stop_bgm()  # Stop BGM when btn2 is selected
+                reset_inactivity_timer()
+            elif btn3_rect.collidepoint(event.pos) and not window_minimized and not showing_bg2:
+                show_bg2_screen()
+                stop_bgm()  # Stop BGM when other screen is shown
+                reset_inactivity_timer()
+
+        # Xbox controller handling with POV (D-pad) for selection and A button for clicking
+        if event.type == pygame.JOYHATMOTION:
+            if event.value == (-1, 0):  # Left on D-pad
+                selected_button = max(1, selected_button - 1)
+            elif event.value == (1, 0):  # Right on D-pad
+                selected_button = min(3, selected_button + 1)
+            elif event.value == (0, 1):  # Up on D-pad
+                if window_minimized:
+                    set_fullscreen_mode()
+                    stop_bgm()
+            reset_inactivity_timer()
+
+        # Reset inactivity timer on any joystick movement if minimized
+        if window_minimized and event.type == pygame.JOYAXISMOTION:
+            reset_inactivity_timer()
+
+        if event.type == pygame.JOYBUTTONDOWN and not showing_bg2:
+            if event.button == 0:  # A button (click action)
+                if selected_button == 1 and not window_minimized:
+                    set_minimized_mode()
+                    play_bgm()  # Play BGM when btn1 is active (minimized mode)
+                elif selected_button == 2 and not window_minimized:
+                    play_video_with_audio(vid2_path, "Press A button to return to home")
+                    stop_bgm()
+                elif selected_button == 3 and not window_minimized:
+                    show_bg2_screen()
+                    stop_bgm()
+                reset_inactivity_timer()
+
+    # Draw buttons with a green border around the selected button, only if not minimized or showing bg2
+    if not window_minimized and not showing_bg2:
+        if selected_button == 1:
+            pygame.draw.rect(screen, (0, 255, 0), btn1_rect.inflate(10, 10), 3)
+        elif selected_button == 2:
+            pygame.draw.rect(screen, (0, 255, 0), btn2_rect.inflate(10, 10), 3)
+        elif selected_button == 3:
+            pygame.draw.rect(screen, (0, 255, 0), btn3_rect.inflate(10, 10), 3)
+
+        # Display button images
+        screen.blit(btn1_image, btn1_rect.topleft)
+        screen.blit(btn2_image, btn2_rect.topleft)
+        screen.blit(btn3_image, btn3_rect.topleft)
+
+    # Display message in minimized mode
+    if window_minimized:
+        screen.fill((50, 50, 50))  # Dark background
+        font = pygame.font.SysFont(None, 40)
+        text_surface = font.render("Press POV Up to return to fullscreen", True, (255, 255, 255))
+        screen.blit(text_surface, (10, 10))
+
+    pygame.display.flip()
+    clock.tick(FPS)
+
+# Quit pygame
+pygame.quit()
