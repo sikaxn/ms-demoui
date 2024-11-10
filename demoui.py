@@ -95,7 +95,7 @@ NON_SELECTED_COLOR = (0, 0, 150)  # Blue for non-selected background
 HIGHLIGHT_COLOR = (255, 215, 0)  # Highlight color for toolbar
 TOOLBAR_COLOR = (50, 50, 50)
 TEXT_COLOR = WHITE
-font = pygame.font.Font(None, 24)
+font = pygame.font.Font("c:\Windows\Fonts\simhei.ttf", 24)
 loading_font = pygame.font.Font(None, 60)  # Larger font for loading screen
 
 # Function to calculate MD5 hash of a file
